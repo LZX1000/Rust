@@ -52,7 +52,7 @@ where
         print!("{}", prompt);
         std::io::stdout().flush().unwrap();
     }
-    let mut buffer = String::new();
+    let mut buffer: String = String::new();
     std::io::stdin().read_line(&mut buffer).expect("Failed to read line");
 
     buffer = buffer.trim().to_string();
@@ -80,23 +80,23 @@ fn main() {
 
     let mut playing: bool = true;
     while playing {
-        let heading = format!(
+        let heading: String = format!(
             "Best: {}",
             match highscore {
                 Some(score) => score.to_string(),
                 None => "None".to_string(),
             }
         );
-        let secret_num = rng.gen_range(min..=max);
+        let secret_num: u16 = rng.gen_range(min..=max);
 
-        let mut message = String::new();
+        let mut message: String = String::new();
 
         let mut min_found: u16 = min;
         let mut max_found: u16 = max;
         let mut guesses: u16 = 0;
 
         loop {
-            let bounds = format!("{}: ({}, {})", guesses, min_found, max_found);
+            let bounds: String = format!("{}: ({}, {})", guesses, min_found, max_found);
 
             guesses += 1;
 
@@ -142,7 +142,6 @@ fn main() {
 
         match highscore {
             Some(score) if guesses < score => {
-                println!("New best: {}", guesses);
                 highscore = Some(guesses);
             }
             None => {
