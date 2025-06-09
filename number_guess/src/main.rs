@@ -29,6 +29,9 @@ macro_rules! input {
     ($prompt:expr, $type:ty) => {
         input::<$type>($prompt, None)
     };
+    ($prompt:expr, $default:expr) => {
+        input::<String>($prompt, Some($default))
+    };
     ($prompt:expr) => {
         input::<String>($prompt, None)
     };
@@ -101,9 +104,9 @@ fn main() {
             guesses += 1;
 
             println!("{}\n{}\n{}", heading, bounds, message);
-            let guess: String = input!("\nGuess a number: ");
+            let guess: String = input!("\nGuess a number: ", "exit".to_string());
 
-            if guess.is_empty() || guess.eq_ignore_ascii_case("exit") {
+            if guess.eq_ignore_ascii_case("exit") {
                 clear_screen!();
                 println!("Goodbye.");
                 playing = false;
@@ -125,7 +128,18 @@ fn main() {
                             max_found = n;
                         }
                     } else {
-                        // message = "Correct!".to_string(); //Never read
+                        clear_screen!();
+                        println!("You guessed {} in {} guesses!\n", secret_num, guesses);
+
+                        match highscore {
+                            Some(score) if guesses < score => {
+                                highscore = Some(guesses);
+                            }
+                            None => {
+                                highscore = Some(guesses);
+                            }
+                            _ => {}
+                        }
                         break;
                     }
                 },
@@ -136,19 +150,5 @@ fn main() {
                 }
             }
         }
-
-        clear_screen!();
-        println!("You guessed {} in {} guesses!\n", secret_num, guesses);
-
-        match highscore {
-            Some(score) if guesses < score => {
-                highscore = Some(guesses);
-            }
-            None => {
-                highscore = Some(guesses);
-            }
-            _ => {}
-        }
-
     }
 }
