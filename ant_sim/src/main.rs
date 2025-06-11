@@ -1,15 +1,17 @@
 const SIMULATION_HEIGHT: usize = 16;
 const SIMULATION_WIDTH: usize = 16;
 const GROUND_HEIGHT : usize = 10;
-const STARTING_ANT_COUNT: u8 = 5;
+// const STARTING_ANT_COUNT: u8 = 5;
 
 use crossterm::{
     cursor::{MoveTo},
     event::{self, Event, KeyCode},
-    terminal::{Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode},
+    terminal::{Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen},
     execute,
 };
+// use rand::Rng;
 use std::{io::{stdout, Write, Result}, time::Duration};
+// use std::thread;
 
 
 #[derive(Debug, Clone)]
@@ -17,24 +19,32 @@ pub struct Tile(u8);
 
 impl Tile {
     // Bit masks
-    const HAS_ANT: u8 = 0b1000_0000;
-    const HAS_FOOD: u8 = 0b0100_0000;
-    const IS_OBSTACLE: u8 = 0b0010_0000;
+    // Has one free bit (bit 8)
+    const HAS_OBJECT_MASK: u8 = 0b0110_0000;
     const PHEROMONE_LEVEL_MASK: u8 = 0b0001_1111;
 
-    pub fn new() -> Self {
-        Tile(0)
+    const HAS_ANT: u8 = 1;
+    const HAS_FOOD: u8 = 2;
+    const HAS_OBSTACLE: u8 = 3;
+
+    pub fn new(rng: &mut impl rand::Rng, food_chance_percentage: u8) -> Self {
+        let mut tile = Tile(0);
+
+        if rng.gen_range(0..100) < food_chance_percentage {
+            tile.set_food(true);
+        }
+        tile
     }
 
     // Getters
     pub fn has_ant(&self) -> bool {
-        self.0 & Self::HAS_ANT != 0
+        (self.0 & Self::HAS_OBJECT_MASK) >> 5 == Self::HAS_ANT
     }
     pub fn has_food(&self) -> bool {
-        self.0 & Self::HAS_FOOD != 0
+        (self.0 & Self::HAS_OBJECT_MASK) >> 5 == Self::HAS_FOOD
     }
     pub fn is_obstacle(&self) -> bool {
-        self.0 & Self::IS_OBSTACLE != 0
+        (self.0 & Self::HAS_OBJECT_MASK) >> 5 == Self::HAS_OBSTACLE
     }
     pub fn pheromone(&self) -> u8 {
         self.0 & Self::PHEROMONE_LEVEL_MASK
@@ -43,23 +53,23 @@ impl Tile {
     // Setters
     pub fn set_ant(&mut self, value: bool) {
         if value {
-            self.0 |= Self::HAS_ANT;
-        } else {
-            self.0 &= !Self::HAS_ANT;
+            self.0 = (self.0 & !Self::HAS_OBJECT_MASK) | Self::HAS_ANT << 5;
+        } else if Self::has_ant(self) {
+            self.0 &= !Self::HAS_OBJECT_MASK;
         }
     }
     pub fn set_food(&mut self, value: bool) {
         if value {
-            self.0 |= Self::HAS_FOOD;
-        } else {
+            self.0 = (self.0 & !Self::HAS_OBJECT_MASK) | Self::HAS_FOOD << 5;
+        } else if Self::has_food(self) {
             self.0 &= !Self::HAS_FOOD;
         }
     }
     pub fn set_obstacle(&mut self, value: bool) {
         if value {
-            self.0 |= Self::IS_OBSTACLE;
-        } else {
-            self.0 &= !Self::IS_OBSTACLE;
+            self.0 = (self.0 & !Self::HAS_OBJECT_MASK) | Self::HAS_OBSTACLE << 5;
+        } else if Self::is_obstacle(self) {
+            self.0 &= !Self::HAS_OBSTACLE;
         }
     }
     pub fn set_pheromone(&mut self, level: u8) {
@@ -189,26 +199,42 @@ fn display_tile(tile: &Tile) -> char {
 }
 
 
-fn run_simulation() -> Result<()> {
-    let mut grid = vec![vec![Tile::new(); SIMULATION_WIDTH]; SIMULATION_HEIGHT];
+fn idx(x: usize, y: usize) -> usize {
+    y * SIMULATION_WIDTH + x
+}
 
-    for (y, row) in grid.iter_mut().enumerate() {
-        for (x, tile) in row.iter_mut().enumerate() {
-            if y >= SIMULATION_HEIGHT - GROUND_HEIGHT {
-                tile.set_obstacle(true);
-            } else if y == SIMULATION_HEIGHT - GROUND_HEIGHT - 1 && x == SIMULATION_WIDTH / 2 - 1 {
-                tile.set_ant(true);
-            } else if (x + y) % 3 == 0 {
-                tile.set_food(true);
-            }
+
+fn run_simulation() -> Result<()> {
+    // Create rng thread
+    let mut rng: rand::prelude::ThreadRng = rand::thread_rng();
+
+    // Initialize grid with random food
+    let mut grid: [Tile; SIMULATION_HEIGHT * SIMULATION_WIDTH] = std::array::from_fn(|_| Tile::new(&mut rng, 10));
+    // Set ant
+    let index: usize = idx(SIMULATION_WIDTH / 2 - 1, SIMULATION_HEIGHT - GROUND_HEIGHT - 1);
+    grid[index].set_ant(true);
+    // Set ground
+    for y in SIMULATION_HEIGHT - GROUND_HEIGHT..SIMULATION_HEIGHT {
+        for x in 0..SIMULATION_WIDTH {
+            let index: usize = idx(x, y);
+            grid[index].set_obstacle(true);
         }
     }
+
+    // let test_tile = &mut grid[idx(1, 1)];
+    // test_tile.set_pheromone(5);
+    // test_tile.set_ant(true);
+    // println!("Pheromone level: {}", test_tile.pheromone().to_string());
+    // println!("Has ant: {}", test_tile.has_ant());
+    // println!("Has food: {}", test_tile.has_food());
+    // test_tile.set_food(true);
+    // println!("Has food: {}", test_tile.has_food());
 
     loop {
         clear_screen();
         println!("Use WASD to move. Press 'q' to quit.\n");
 
-        for row in &grid {
+        for row in grid.chunks(SIMULATION_WIDTH) {
             let row_display: String = row.iter().map(display_tile).collect();
             println!("{}", row_display);
         }
