@@ -51,7 +51,7 @@ impl Tile {
         (self.0 & Self::HAS_OBJECT_MASK) >> 5 == Self::HAS_OBSTACLE
     }
     pub fn pheromone(&self) -> u8 {
-        self.0 & Self::FOOD_PHEROMONE_LEVEL_MASK >> 3
+        (self.0 & Self::FOOD_PHEROMONE_LEVEL_MASK) >> 3
     }
     pub fn home_pheromone(&self) -> u8 {
         self.0 & Self::HOME_PHEROMONE_LEVEL_MASK
@@ -69,21 +69,21 @@ impl Tile {
         if value {
             self.0 = (self.0 & !Self::HAS_OBJECT_MASK) | Self::HAS_FOOD << 5;
         } else if Self::has_food(self) {
-            self.0 &= !Self::HAS_FOOD;
+            self.0 &= !Self::HAS_OBJECT_MASK;
         }
     }
     pub fn set_obstacle(&mut self, value: bool) {
         if value {
             self.0 = (self.0 & !Self::HAS_OBJECT_MASK) | Self::HAS_OBSTACLE << 5;
         } else if Self::is_obstacle(self) {
-            self.0 &= !Self::HAS_OBSTACLE;
+            self.0 &= !Self::HAS_OBJECT_MASK;
         }
     }
     pub fn set_pheromone(&mut self, level: u8) {
-        self.0 = (self.0 & !Self::FOOD_PHEROMONE_LEVEL_MASK) | ((level.min(3) & Self::FOOD_PHEROMONE_LEVEL_MASK) << 3);
+        self.0 = (self.0 & !Self::FOOD_PHEROMONE_LEVEL_MASK) | ((level.min(3) & 0b11) << 3);
     }
     pub fn set_home_pheromone(&mut self, level: u8) {
-        self.0 = (self.0 & !Self::HOME_PHEROMONE_LEVEL_MASK) | (level.min(7) & Self::HOME_PHEROMONE_LEVEL_MASK);
+        self.0 = (self.0 & !Self::HOME_PHEROMONE_LEVEL_MASK) | (level.min(7) & 0b111);
     }
 }
 
@@ -98,6 +98,48 @@ enum Direction {
     Left,
     UpLeft,
 }
+
+impl Direction {
+    pub fn to_u16(self) -> u16 {
+        self as u16
+    }
+
+    pub fn from_u16(value: u16) -> Direction {
+        match value & 0b111{
+            0 => Direction::Up,
+            1 => Direction::UpRight,
+            2 => Direction::Right,
+            3 => Direction::DownRight,
+            4 => Direction::Down,
+            5 => Direction::DownLeft,
+            6 => Direction::Left,
+            7 => Direction::UpLeft,
+            _ => unreachable!(), 
+        }
+    }
+
+    pub fn delta(self) -> (isize, isize) {
+        match self {
+            Direction::Up => (0, -1),
+            Direction::UpRight => (1, -1),
+            Direction::Right => (1, 0),
+            Direction::DownRight => (1, 1,),
+            Direction::Down => (0, 1),
+            Direction::DownLeft => (-1, 1),
+            Direction::Left => (-1, 0),
+            Direction::UpLeft => (-1, -1),
+        }
+    }
+
+    pub fn turn_left(self) -> Self {
+        Direction::from_u16((self.to_u16() + 7) % 8)
+    }
+
+    pub fn turn_right(self) -> Self {
+        Direction::from_u16((self.to_u16() + 1) % 8)
+    }
+}
+
 
 #[derive(Debug, Clone)]
 pub struct Ant(u16);
@@ -138,11 +180,11 @@ impl Ant {
     pub fn direction(&self) -> u16 {
         (self.0 & Self::DIRECTION_MASK) >> 7
     }
+    pub fn this_type(&self) -> u16 {
+        (self.0 & Self::ANT_ROLE_MASK) >> 5
+    }
     pub fn carrying_food(&self) -> bool {
         (self.0 & Self::CARRYING_MASK) >> 3 == Self::IS_CARRYING_FOOD
-    }
-    pub fn this_type(&self) -> u16 {
-        (self.0 & Self::ANT_ROLE_MASK) >> 3
     }
 
     // Setters
@@ -156,7 +198,7 @@ impl Ant {
         self.0 = (self.0 & !Self::STRENGTH_MASK) | ((strength & 0b11) << 10);
     }
     pub fn set_direction(&mut self, direction: u16) {
-        self.0 = (self.0 & !Self::DIRECTION_MASK) | ((direction & 0b11) << 6);
+        self.0 = (self.0 & !Self::DIRECTION_MASK) | ((direction & 0b111) << 7);
     }
     pub fn set_carrying_food(&mut self, value: bool) {
         if value {
@@ -255,14 +297,16 @@ fn run_simulation() -> Result<()> {
 
     // Initialize grid with random food
     let mut world = World::new(&mut rng);
+
+    let mut stdout = stdout();
     
-    // Set ant
+    // Add ants
     for _ in 0..STARTING_ANT_COUNT {
         let x = rng.gen_range(0..SIMULATION_WIDTH);
         let y = rng.gen_range(0..SIMULATION_HEIGHT - GROUND_HEIGHT);
         world.add_ant(x, y);
     }
-    // Set ground
+    // Add ground
     for y in SIMULATION_HEIGHT - GROUND_HEIGHT..SIMULATION_HEIGHT {
         for x in 0..SIMULATION_WIDTH {
             if let Some(tile) = world.get_tile_mut(x, y) {
@@ -271,30 +315,44 @@ fn run_simulation() -> Result<()> {
         }
     }
 
+    // Hide cursor
+    execute!(stdout, crossterm::cursor::Hide)?;
+
     loop {
-        clear_screen();
-        println!("Use WASD to move. Press 'q' to quit.\n");
+        // clear_screen();
+
+        // Move cursor to top left without clearing
+        execute!(stdout, MoveTo(0, 0))?;
+
+        writeln!(stdout, "Press 'q' to quit.\n")?;
 
         for row in world.grid.chunks(SIMULATION_WIDTH) {
-            let row_display: String = row.iter().map(display_tile).collect();
-            println!("{}", row_display);
+            for tile in row {
+                let ch = display_tile(tile);
+                write!(stdout, "{}", ch)?;
+            }
+            writeln!(stdout)?;
         }
-        stdout().flush().unwrap();
+
+        stdout.flush()?;
 
         if event::poll(Duration::from_millis(100))? {
             if let Event::Key(key_event) = event::read()? {
                 match key_event.code {
                     KeyCode::Char('q') => break,
-                    KeyCode::Char('w') => println!("Move Up"),
-                    KeyCode::Char('s') => println!("Move Down"),
-                    KeyCode::Char('a') => println!("Move Left"),
-                    KeyCode::Char('d') => println!("Move Right"),
+                    // KeyCode::Char('w') => println!("Move Up"),
+                    // KeyCode::Char('s') => println!("Move Down"),
+                    // KeyCode::Char('a') => println!("Move Left"),
+                    // KeyCode::Char('d') => println!("Move Right"),
                     _ => {}
                 }
             }
         }
-        std::thread::sleep(Duration::from_millis(100));
+        std::thread::sleep(Duration::from_millis(50));
     }
+
+    //Show cursor
+    execute!(stdout, crossterm::cursor::Show)?;
 
     Ok(())
 }
